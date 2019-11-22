@@ -11,40 +11,24 @@ inputs=$(mktemp /tmp/resource-in.XXXXXX)
 
 cat > $inputs <&0
 
-app_id=$(jq -r '.source.app_id' < $inputs)
-
 api_key=$(jq -r '.source.api_key' < $inputs)
-
-json_file=$(jq -r '.params.json_file // ""' < $inputs)
 
 user=$(jq -r '(.params.user // empty)' < $inputs)
 
+revision=$(jq -r '(.version.ref // empty)' < $inputs)
+if [ -z "$ref" ] echo "Version Reference is not available" && exit 1
 
-if [[ -n "${json_file}" && -f "${json_file}" ]]
-then
-  check=$(jq '.revision?' $json_file)
-  if [[ $check == null ]]
-  then
-    echo "revision is missing from the json_file. cannot continue"
-    exit 1
-  fi
+app_name=$(jq -r '(.params.app_name // empty)' < $inputs)
+if [ -z "$app_name" ] echo "New Relic Application Name can not be empty" && exit 1
 
-  revision=$(jq -r '.revision' $json_file)
-  changelog=$(jq -r '(.changelog // empty)' $json_file)
-  description=$(jq -r '(.description // empty)' $json_file)
-fi
+app_id=$(curl -sb -X GET 'https://api.newrelic.com/v2/applications.json' -H "X-Api-Key:${api_key}"  -d "filter[name]=${app_name}" | jq -c '.applications[].id')
+if [ -z "$app_id" ] echo "Can't find given New Relic Application Name" && exit 1
 
 body=$(jq -c -n \
 	--arg revision "${revision}" \
-	--arg changelog "${changelog}" \
-	--arg description "${description}" \
-	--arg user "${user}" \
 	'{
 		deployment: {
-			revision: $revision,
-			changelog: $changelog,
-			description: $description,
-			user: $user
+			revision: $revision
 		}
 	}'
 )
@@ -67,17 +51,11 @@ fi
 jq -n \
     --arg ts $(date +%s) \
     --arg revision "${revision}" \
-    --arg changelog "${changelog}" \
-    --arg description "${description}" \
-    --arg user "${user}" \
     '{
         version: {
             timestamp: $ts
         },
         metadata: [
-            {name: "revision", value: $revision},
-            {name: "changelog", value: $changelog},
-            {name: "description", value: $description},
-            {name: "user", value: $user}
+            {name: "revision", value: $revision}
         ]
     }' >&3
